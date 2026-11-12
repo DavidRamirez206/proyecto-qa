@@ -1,0 +1,13 @@
+# Dependencias
+vendor/
+node_modules/
+
+# Variables de entorno
+.env
+
+# Artefactos de pruebas y build
+coverage/
+.next/
+
+# Base de datos local
+database/database.sqlite
