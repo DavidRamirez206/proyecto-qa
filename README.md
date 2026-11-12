@@ -13,26 +13,59 @@ Todo corre en contenedores: no hace falta instalar PHP, Composer ni Node.js en e
 ## Requisitos
 
 - Git
-- Docker Engine 24+ con el plugin Docker Compose v2 (`docker compose version`)
-- `make` (opcional: cada objetivo muestra el comando equivalente)
+- Docker con Docker Compose v2 (`docker compose version`):
+  - Linux: Docker Engine 24+ con el plugin Compose.
+  - Windows y macOS: Docker Desktop, abierto y en ejecución antes de usar los comandos.
+- `make` (opcional, solo Linux y macOS: cada objetivo tiene su comando `docker compose` equivalente)
 
 Versiones que usan las imágenes: PHP 8.4, Composer 2, Node.js 22, PostgreSQL 17.
 
 ## Levantar el proyecto
 
+### Linux y macOS
+
 ```bash
-git clone <url-del-repositorio> proyecto-qa
+git clone https://github.com/DavidRamirez206/proyecto-qa.git
 cd proyecto-qa
 
 # 1. Crear backend/.env y construir las imágenes
-make install            # = cp backend/.env.example backend/.env && docker compose build
+make install
 
 # 2. Levantar db, backend y frontend (espera a que estén sanos)
-make up                 # = docker compose up -d --wait
+make up
 
 # 3. Crear tablas y datos de ejemplo (usuario QA y 5 productos)
-make seed               # = docker compose exec backend php artisan migrate --seed --force
+make seed
 ```
+
+Sin `make`, los mismos pasos son:
+
+```bash
+cp backend/.env.example backend/.env
+docker compose build
+docker compose up -d --wait
+docker compose exec backend php artisan migrate --seed --force
+```
+
+### Windows (PowerShell)
+
+```powershell
+git clone https://github.com/DavidRamirez206/proyecto-qa.git
+cd proyecto-qa
+
+# 1. Crear backend/.env y construir las imágenes
+Copy-Item backend\.env.example backend\.env
+docker compose build
+
+# 2. Levantar db, backend y frontend (espera a que estén sanos)
+docker compose up -d --wait
+
+# 3. Crear tablas y datos de ejemplo (usuario QA y 5 productos)
+docker compose exec backend php artisan migrate --seed --force
+```
+
+En el Símbolo del sistema (CMD), el paso 1 es `copy backend\.env.example backend\.env`.
+Los comandos `docker compose` son iguales en PowerShell, CMD, Linux y macOS.
 
 Al terminar:
 
@@ -81,20 +114,24 @@ reconstruir. `vendor/` y `node_modules/` viven en volúmenes de Docker y no en s
 
 Las pruebas se ejecutan dentro de los contenedores. No necesitan que el stack esté levantado.
 
-| Objetivo             | Qué hace                                                          |
-|----------------------|-------------------------------------------------------------------|
-| `make test-backend`  | Pest (`./vendor/bin/pest`) sobre SQLite en memoria                |
-| `make test-frontend` | Vitest con cobertura (`npm run test:coverage`)                    |
-| `make lint`          | ESLint y `tsc --noEmit` del frontend                              |
-| `make test`          | `lint` + `test-backend` + `test-frontend`                         |
+| Qué hace                               | Con `make`           | Con Docker (también Windows)                                    |
+|----------------------------------------|----------------------|-----------------------------------------------------------------|
+| Pest sobre SQLite en memoria           | `make test-backend`  | `docker compose run --rm backend ./vendor/bin/pest`             |
+| Vitest con cobertura                   | `make test-frontend` | `docker compose run --rm --no-deps frontend npm run test:coverage` |
+| ESLint del frontend                    | `make lint`          | `docker compose run --rm --no-deps frontend npm run lint`       |
+| `tsc --noEmit` del frontend            | `make lint`          | `docker compose run --rm --no-deps frontend npm run typecheck`  |
+| Todo lo anterior                       | `make test`          | Los cuatro comandos anteriores, en ese orden                    |
 
-Comandos sueltos:
+Otros comandos útiles:
 
 ```bash
 docker compose run --rm backend ./vendor/bin/pest --filter=OrderCalculator
 docker compose run --rm --no-deps frontend npm run test:run
 docker compose run --rm --no-deps frontend npm run build
 ```
+
+`--rm` borra el contenedor temporal al terminar y `--no-deps` evita encender la base de datos y
+el backend cuando solo se prueba el frontend.
 
 - Backend: `phpunit.xml` fija `DB_CONNECTION=sqlite` y `DB_DATABASE=:memory:`, así que las pruebas
   nunca tocan la base de PostgreSQL.
@@ -107,7 +144,7 @@ pruebas, para mostrar cómo una suite detecta un defecto:
 
 ```bash
 git switch demo/defecto-iva
-make test-backend       # falla en OrderCalculatorTest
+docker compose run --rm backend ./vendor/bin/pest    # falla en OrderCalculatorTest
 git switch main
 ```
 
@@ -154,7 +191,12 @@ Las credenciales de PostgreSQL de `docker-compose.yml` (`POSTGRES_*`) deben coin
   El frontend debe seguir en el puerto 3000, porque CORS solo permite `http://localhost:3000`.
 - **El backend no queda `healthy`.** Revise `docker compose logs backend`; suele ser una
   credencial de base de datos que no coincide entre `backend/.env` y `docker-compose.yml`.
-- **Archivos creados con otro dueño.** Las imágenes usan el UID/GID 1000. Si su usuario tiene
-  otro, construya con `docker compose build --build-arg UID=$(id -u) --build-arg GID=$(id -g) backend`.
+- **Archivos creados con otro dueño (solo Linux).** Las imágenes usan el UID/GID 1000. Si su
+  usuario tiene otro, construya con
+  `docker compose build --build-arg UID=$(id -u) --build-arg GID=$(id -g) backend`.
+  En Windows y macOS, Docker Desktop maneja los permisos y no hace falta.
+- **Windows: `set: illegal option -` o `no such file or directory` al arrancar.** El script de
+  arranque se descargó con finales de línea CRLF. El `.gitattributes` del repositorio lo evita en
+  clones nuevos; en un clone anterior ejecute `git rm --cached -r . && git reset --hard`.
 - **Cambió `composer.lock` o `package-lock.json`.** Basta con reiniciar el servicio
   (`docker compose restart backend`); el entrypoint sincroniza las dependencias.
