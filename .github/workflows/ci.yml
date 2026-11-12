@@ -1,0 +1,138 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+
+  pull_request:
+    branches: [main]
+
+
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+
+  # ---------------------------------------------------------------------------
+  # Job 1: API en Laravel
+  # ---------------------------------------------------------------------------
+  backend:
+    name: Backend                 # nombre que se ve en Actions y en el PR
+
+    # runs-on: sistema operativo del runner (la máquina virtual que pone GitHub).
+    # ubuntu-latest es Linux, el más rápido y el que gasta menos minutos.
+    runs-on: ubuntu-latest
+
+    # defaults.run.working-directory: todos los "run" de este job se ejecutan
+    # dentro de backend/, como si se hiciera "cd backend" antes de cada comando.
+    defaults:
+      run:
+        working-directory: backend
+
+    # steps: pasos del job, en orden. Si uno falla, los siguientes no se ejecutan
+    # y el job queda en rojo.
+    #   - uses: ejecuta una action (un paso ya hecho y publicado por terceros).
+    #   - run:  ejecuta un comando de terminal, igual que en su equipo.
+    steps:
+      # uses: descarga el código del repositorio en el runner.
+      # Sin este paso la máquina está vacía.
+      - name: Descargar el código
+        uses: actions/checkout@v7
+
+      # uses: instala PHP 8.4 y Composer. No se usa Docker porque las pruebas
+      # corren sobre SQLite en memoria (phpunit.xml) y no necesitan PostgreSQL.
+      - name: Instalar PHP 8.4
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          extensions: pdo_sqlite, sqlite3, mbstring
+          coverage: none          # no se mide cobertura en PHP (más rápido)
+          tools: composer:v2
+
+      # run: instala las dependencias exactamente como están en composer.lock.
+      - name: Instalar dependencias
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      # run: crea el .env a partir de la plantilla y genera APP_KEY,
+      # que Laravel necesita para arrancar.
+      - name: Preparar el entorno
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      # run: ejecuta las pruebas unitarias y de feature con Pest.
+      # Si una prueba falla, este paso termina con error y el job queda en rojo.
+      - name: Ejecutar pruebas (Pest)
+        run: ./vendor/bin/pest
+
+      # run: revisa si alguna dependencia de PHP tiene vulnerabilidades conocidas.
+      - name: Auditar dependencias
+        run: composer audit
+
+  # ---------------------------------------------------------------------------
+  # Job 2: aplicación en Next.js (corre en paralelo con el backend)
+  # ---------------------------------------------------------------------------
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v7
+
+      # uses: instala Node.js 22 (la misma versión de la imagen Docker) y
+      # guarda en caché las descargas de npm para que las siguientes
+      # ejecuciones sean más rápidas.
+      - name: Instalar Node.js 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # run: instalación limpia y exacta según package-lock.json.
+      - name: Instalar dependencias
+        run: npm ci
+
+      # run: revisa el estilo y errores comunes con ESLint.
+      - name: Lint
+        run: npm run lint
+
+      # run: verifica los tipos de TypeScript sin generar archivos (tsc --noEmit).
+      - name: Verificar tipos
+        run: npm run typecheck
+
+      # run: ejecuta Vitest y genera los reportes de cobertura en
+      # frontend/coverage/ (text, lcov y cobertura).
+      - name: Ejecutar pruebas con cobertura (Vitest)
+        run: npm run test:coverage
+
+      # uses: guarda la carpeta coverage/ como "artifact", un archivo que se
+      # descarga desde la página de la ejecución en la pestaña Actions.
+      # if: always() hace que se suba incluso si las pruebas fallaron.
+      - name: Publicar reporte de cobertura
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cobertura-frontend
+          path: frontend/coverage/
+          retention-days: 7       # GitHub lo borra después de 7 días
+          if-no-files-found: ignore
+
+      # run: comprueba que la aplicación compila para producción.
+      - name: Compilar (build)
+        run: npm run build
+
+      # run: falla si alguna dependencia de producción tiene vulnerabilidades
+      # de severidad alta o crítica.
+      - name: Auditar dependencias
+        run: npm audit --omit=dev --audit-level=high
