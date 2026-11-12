@@ -11,3 +11,7 @@ coverage/
 
 # Base de datos local
 database/database.sqlite
+
+#IDEs
+.idea
+.vs

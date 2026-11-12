@@ -137,17 +137,6 @@ el backend cuando solo se prueba el frontend.
   nunca tocan la base de PostgreSQL.
 - Frontend: los reportes de cobertura (`text`, `lcov` y `cobertura`) quedan en `frontend/coverage/`.
 
-### Rama de demostración
-
-La rama `demo/defecto-iva` cambia el IVA de `OrderCalculator` del 19 % al 18 % sin tocar las
-pruebas, para mostrar cómo una suite detecta un defecto:
-
-```bash
-git switch demo/defecto-iva
-docker compose run --rm backend ./vendor/bin/pest    # falla en OrderCalculatorTest
-git switch main
-```
-
 ## Endpoints
 
 Todas las rutas usan el prefijo `/api`. Envíe `Accept: application/json`.
